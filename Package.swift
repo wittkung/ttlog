@@ -14,7 +14,7 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
-        .library(name: "TTLogKit", targets: ["TTLogKit"])
+        .library(name: "TTLogKit", type: .dynamic, targets: ["TTLogKit"])
     ],
     dependencies: [],
     targets: [
