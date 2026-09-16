@@ -1,0 +1,22 @@
+# macOS & System
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# SwiftPM & Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+*.xcworkspace
+*.dSYM/
+*.log
+
+# Editor & Temporary
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+.system_generated/
