@@ -1,7 +1,5 @@
+// Copyright 2026 MetastudyLine. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
-//
-// Copyright (c) 2026 Witt Kung <witt.w.kung@gmail.com>
-// All rights reserved.
 //
 // TTLog: High-performance unified logging and diagnostic telemetry SDK.
 
@@ -14,14 +12,14 @@ public final class MainThreadHangWatchdog: @unchecked Sendable {
 
     private static let hangCategory = TTLogCategory(rawValue: "hang")
 
-    private struct WatchdogState: Sendable {
+    private struct WatchdogState: @unchecked Sendable {
         var isRunning: Bool = false
         var lastPingResponseUptime: TimeInterval = 0
         var lastLoggedHangUptime: TimeInterval = 0
+        var watchdogThread: Thread? = nil
     }
 
     private let state = OSAllocatedUnfairLock(initialState: WatchdogState())
-    private var watchdogThread: Thread?
 
     public init() {}
 
@@ -33,23 +31,23 @@ public final class MainThreadHangWatchdog: @unchecked Sendable {
 
     /// Starts the independent daemon watchdog thread.
     public func start() {
-        let shouldStart = state.withLock { s -> Bool in
-            if s.isRunning { return false }
+        let didStart: Bool = state.withLock { s in
+            guard !s.isRunning else { return false }
             s.isRunning = true
             s.lastPingResponseUptime = ProcessInfo.processInfo.systemUptime
             s.lastLoggedHangUptime = 0
+
+            let thread = Thread { [weak self] in
+                self?.runWatchdogLoop()
+            }
+            thread.name = "com.metastudyline.ttlog.hang-watchdog"
+            thread.qualityOfService = .utility
+            s.watchdogThread = thread
+            thread.start()
             return true
         }
 
-        guard shouldStart else { return }
-
-        let thread = Thread { [weak self] in
-            self?.runWatchdogLoop()
-        }
-        thread.name = "com.metastudyline.ttlog.hang-watchdog"
-        thread.qualityOfService = .utility
-        self.watchdogThread = thread
-        thread.start()
+        guard didStart else { return }
 
         TTLogEngine.shared.log(
             level: .info,
@@ -61,10 +59,11 @@ public final class MainThreadHangWatchdog: @unchecked Sendable {
     /// Stops the watchdog thread.
     public func stop() {
         state.withLock { s in
+            guard s.isRunning || s.watchdogThread != nil else { return }
             s.isRunning = false
+            s.watchdogThread?.cancel()
+            s.watchdogThread = nil
         }
-        watchdogThread?.cancel()
-        watchdogThread = nil
     }
 
     // MARK: - Event Loop

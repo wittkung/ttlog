@@ -24,7 +24,7 @@ Add `TTLogKit` to your `Package.swift` dependencies:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/wittkung/ttlog.git", from: "1.0.0")
+    .package(url: "https://github.com/wittkung/ttlog.git", from: "1.0.1")
 ],
 targets: [
     .target(
@@ -118,4 +118,4 @@ TTLogKit is dual-licensed under:
 - **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE))
 - **BSD 3-Clause License** ([LICENSE-BSD](LICENSE-BSD))
 
-Copyright (c) 2026 Witt Kung <witt.w.kung@gmail.com>. All rights reserved.
+Copyright (c) 2026 Witt Kung <kevintungs@163.com>. All rights reserved.

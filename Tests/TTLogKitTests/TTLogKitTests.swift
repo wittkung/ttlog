@@ -1,12 +1,9 @@
+// Copyright 2026 MetastudyLine. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
-//
-// Copyright (c) 2026 Witt Kung <witt.w.kung@gmail.com>
-// All rights reserved.
-//
-// TTLog: High-performance unified logging and diagnostic telemetry SDK.
+
 
 import XCTest
-@testable import TTLogKit
+import TTLogKit
 
 final class TTLogKitTests: XCTestCase {
 
@@ -156,5 +153,74 @@ final class TTLogKitTests: XCTestCase {
             }
         }
         watchdog.stop()
+    }
+
+    // MARK: - 7. Control Character & ANSI Sanitization Tests (CWE-117, CWE-150)
+
+    func testSanitizerEscapesControlCharactersAndAnsi() {
+        // 1. CRLF Injection (CWE-117)
+        let crlfInjection = "User 'attacker' logged in\r\n[CRITICAL] System integrity failed\r\n"
+        let sanitizedCrlf = TTLogSanitizer.sanitize(crlfInjection)
+        XCTAssertEqual(
+            sanitizedCrlf,
+            "User 'attacker' logged in\\r\\n[CRITICAL] System integrity failed\\r\\n"
+        )
+        XCTAssertFalse(sanitizedCrlf.contains("\r"))
+        XCTAssertFalse(sanitizedCrlf.contains("\n"))
+
+        // 2. ANSI Terminal Control Sequences (CWE-150)
+        let ansiSequence = "Status: OK\u{001B}[2J\u{001B}[H\u{001B}[31mInjected Red\u{001B}[0m"
+        let sanitizedAnsi = TTLogSanitizer.sanitize(ansiSequence)
+        XCTAssertEqual(sanitizedAnsi, "Status: OK\\e[2J\\e[H\\e[31mInjected Red\\e[0m")
+        XCTAssertFalse(sanitizedAnsi.contains("\u{001B}"))
+
+        // 3. NULL Byte injection
+        let nullByteMsg = "root\0admin_override"
+        let sanitizedNull = TTLogSanitizer.sanitize(nullByteMsg)
+        XCTAssertEqual(sanitizedNull, "root\\0admin_override")
+        XCTAssertFalse(sanitizedNull.contains("\0"))
+
+        // 4. Tab escaping
+        let tabMsg = "Column1\tColumn2\tColumn3"
+        let sanitizedTab = TTLogSanitizer.sanitize(tabMsg)
+        XCTAssertEqual(sanitizedTab, "Column1\\tColumn2\\tColumn3")
+        XCTAssertFalse(sanitizedTab.contains("\t"))
+
+        // 5. C0 Control characters (Bell, Backspace, DEL)
+        let c0Msg = "Alert\u{0007}Backspace\u{0008}Delete\u{007F}"
+        let sanitizedC0 = TTLogSanitizer.sanitize(c0Msg)
+        XCTAssertEqual(sanitizedC0, "Alert\\x07Backspace\\x08Delete\\x7F")
+
+        // 6. Normal UTF-8 text with multi-byte characters and emojis (zero corruption)
+        let normalMsg = "Task 42 succeeded: 部署成功 🚀, elapsed: 12ms."
+        let sanitizedNormal = TTLogSanitizer.sanitize(normalMsg)
+        XCTAssertEqual(sanitizedNormal, normalMsg)
+    }
+
+    func testSanitizerEscapesCombinedCredentialsAndControlInjections() {
+        let maliciousPayload = "User auth: password = \"secret456\"\r\n[CRITICAL] Fake root event\u{001B}[2J"
+        let sanitized = TTLogSanitizer.sanitize(maliciousPayload)
+
+        // Verifies credential redaction occurred
+        XCTAssertTrue(sanitized.contains("password = [REDACTED]"))
+        XCTAssertFalse(sanitized.contains("secret456"))
+
+        // Verifies control characters and ANSI codes were escaped
+        XCTAssertTrue(sanitized.contains("\\r\\n[CRITICAL] Fake root event\\e[2J"))
+        XCTAssertFalse(sanitized.contains("\r"))
+        XCTAssertFalse(sanitized.contains("\n"))
+        XCTAssertFalse(sanitized.contains("\u{001B}"))
+    }
+
+    func testDirectEscapeControlCharactersAPI() {
+        XCTAssertEqual(TTLogSanitizer.escapeControlCharacters(""), "")
+        XCTAssertEqual(
+            TTLogSanitizer.escapeControlCharacters("Simple ASCII string with no escapes"),
+            "Simple ASCII string with no escapes"
+        )
+        XCTAssertEqual(
+            TTLogSanitizer.escapeControlCharacters("Line1\rLine2\nLine3\tTab"),
+            "Line1\\rLine2\\nLine3\\tTab"
+        )
     }
 }

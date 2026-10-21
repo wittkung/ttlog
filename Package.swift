@@ -1,6 +1,6 @@
 // swift-tools-version: 6.0
-// SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2026 Witt Kung <witt.w.kung@gmail.com>. All rights reserved.
+// Copyright 2026 MetastudyLine. All rights reserved.
+// SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
 
 import PackageDescription
 

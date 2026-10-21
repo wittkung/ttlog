@@ -1,9 +1,6 @@
+// Copyright 2026 MetastudyLine. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
-//
-// Copyright (c) 2026 Witt Kung <witt.w.kung@gmail.com>
-// All rights reserved.
-//
-// TTLog: High-performance unified logging and diagnostic telemetry SDK.
+
 
 import Foundation
 
@@ -84,12 +81,66 @@ public enum TTLogSanitizer: Sendable {
         return list
     }()
 
-    /// Sanitizes message by redacting passwords, secrets, tokens, private keys, and credential URIs.
+    // Precomputed hex lookup table for C0/C1 control characters
+    private static let hexAlphabet: [UnicodeScalar] = Array("0123456789ABCDEF".unicodeScalars)
+
+    @inlinable
+    static func isControlCharacter(_ scalar: UnicodeScalar) -> Bool {
+        let val = scalar.value
+        return val < 0x20 || (val >= 0x7F && val <= 0x9F)
+    }
+
+    /// Escapes control characters, CRLF line injections (CWE-117), and ANSI escape sequences (CWE-150).
+    ///
+    /// - Fast path: returns the original `message` if no C0/C1 control characters are present (zero heap allocation).
+    /// - Escapes `\r` to `\r`, `\n` to `\n`, `\t` to `\t`, `\0` to `\0`, `\u{001B}` (ESC) to `\e`.
+    /// - Escapes remaining C0/C1 control characters (< 0x20, 0x7F...0x9F) to `\xHH`.
+    public static func escapeControlCharacters(_ message: String) -> String {
+        guard !message.isEmpty else { return message }
+
+        // Fast-path: if message contains no C0 or C1 control characters, return immediately.
+        guard message.unicodeScalars.contains(where: { isControlCharacter($0) }) else {
+            return message
+        }
+
+        var output = ""
+        output.reserveCapacity(message.utf8.count + 16)
+
+        for scalar in message.unicodeScalars {
+            switch scalar.value {
+            case 0x00: // NUL
+                output.append("\\0")
+            case 0x09: // Horizontal Tab (\t)
+                output.append("\\t")
+            case 0x0A: // Line Feed (\n)
+                output.append("\\n")
+            case 0x0D: // Carriage Return (\r)
+                output.append("\\r")
+            case 0x1B: // Escape (ESC)
+                output.append("\\e")
+            case 0x01...0x08, 0x0B...0x0C, 0x0E...0x1A, 0x1C...0x1F, 0x7F...0x9F:
+                let high = Int((scalar.value >> 4) & 0x0F)
+                let low = Int(scalar.value & 0x0F)
+                output.append("\\x")
+                output.unicodeScalars.append(hexAlphabet[high])
+                output.unicodeScalars.append(hexAlphabet[low])
+            default:
+                output.unicodeScalars.append(scalar)
+            }
+        }
+
+        return output
+    }
+
+    /// Sanitizes message by redacting passwords, secrets, tokens, private keys, credential URIs,
+    /// and escaping control characters and ANSI terminal codes (CWE-117, CWE-150).
     public static func sanitize(_ message: String) -> String {
         guard !message.isEmpty else { return message }
 
-        // Fast-path check: if none of the trigger keywords are present, return immediately.
-        let lower = message.lowercased()
+        var result = message
+
+        // 1. Redact credentials if trigger keywords are present
+        let lower = result.lowercased()
         var hasTrigger = false
         for kw in triggerKeywords {
             if lower.contains(kw) {
@@ -97,20 +148,20 @@ public enum TTLogSanitizer: Sendable {
                 break
             }
         }
-        guard hasTrigger else {
-            return message
+
+        if hasTrigger {
+            for rule in rules {
+                let range = NSRange(result.startIndex..<result.endIndex, in: result)
+                result = rule.regex.stringByReplacingMatches(
+                    in: result,
+                    options: [],
+                    range: range,
+                    withTemplate: rule.template
+                )
+            }
         }
 
-        var result = message
-        for rule in rules {
-            let range = NSRange(result.startIndex..<result.endIndex, in: result)
-            result = rule.regex.stringByReplacingMatches(
-                in: result,
-                options: [],
-                range: range,
-                withTemplate: rule.template
-            )
-        }
-        return result
+        // 2. Escape control characters and terminal escape sequences (CWE-117, CWE-150)
+        return escapeControlCharacters(result)
     }
 }
