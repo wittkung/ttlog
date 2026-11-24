@@ -165,41 +165,51 @@ public final class TTLogFileSink: TTLogSink, @unchecked Sendable {
         }
     }
 
-    private func rotateFilesInternal() {
-        try? fileHandle?.synchronize()
-        try? fileHandle?.close()
+    private func archiveURL(forGeneration generation: Int) -> URL {
+        logDirectory.appendingPathComponent("\(filePrefix).\(generation).log")
+    }
+
+    private func closeActiveFileHandle() {
+        guard let handle = fileHandle else { return }
+        try? handle.synchronize()
+        try? handle.close()
         fileHandle = nil
+    }
 
-        let fm = FileManager.default
+    private func moveFileIfPresent(from source: URL, to destination: URL, using fm: FileManager) {
+        guard fm.fileExists(atPath: source.path) else { return }
+        try? fm.moveItem(at: source, to: destination)
+    }
+
+    private func shiftArchiveGenerations(using fm: FileManager) {
         let maxCount = rotationPolicy.maxArchiveFiles
-
-        // 1. Remove the oldest backup if it exists (e.g. ttlog.5.log)
-        let oldestBackup = logDirectory.appendingPathComponent("\(filePrefix).\(maxCount).log")
+        let oldestBackup = archiveURL(forGeneration: maxCount)
         if fm.fileExists(atPath: oldestBackup.path) {
             try? fm.removeItem(at: oldestBackup)
         }
 
-        // 2. Shift older backups down: ttlog.4.log -> ttlog.5.log, ..., ttlog.1.log -> ttlog.2.log
-        if maxCount > 1 {
-            for index in stride(from: maxCount - 1, through: 1, by: -1) {
-                let src = logDirectory.appendingPathComponent("\(filePrefix).\(index).log")
-                let dst = logDirectory.appendingPathComponent("\(filePrefix).\(index + 1).log")
-                if fm.fileExists(atPath: src.path) {
-                    try? fm.moveItem(at: src, to: dst)
-                }
-            }
+        guard maxCount > 1 else { return }
+        for generation in stride(from: maxCount - 1, through: 1, by: -1) {
+            moveFileIfPresent(
+                from: archiveURL(forGeneration: generation),
+                to: archiveURL(forGeneration: generation + 1),
+                using: fm
+            )
         }
+    }
 
-        // 3. Move active log to ttlog.1.log
-        let firstBackup = logDirectory.appendingPathComponent("\(filePrefix).1.log")
-        if fm.fileExists(atPath: primaryLogFileURL.path) {
-            try? fm.moveItem(at: primaryLogFileURL, to: firstBackup)
-        }
-
-        // 4. Create fresh active file
+    private func openFreshPrimaryFile(using fm: FileManager) {
         fm.createFile(atPath: primaryLogFileURL.path, contents: nil, attributes: nil)
         currentFileSize = 0
         fileHandle = try? FileHandle(forWritingTo: primaryLogFileURL)
+    }
+
+    private func rotateFilesInternal() {
+        closeActiveFileHandle()
+        let fm = FileManager.default
+        shiftArchiveGenerations(using: fm)
+        moveFileIfPresent(from: primaryLogFileURL, to: archiveURL(forGeneration: 1), using: fm)
+        openFreshPrimaryFile(using: fm)
     }
 
     private func flushInternal() {

@@ -112,7 +112,13 @@ final class TTLogKitTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: activeLog.path))
 
         let backupLog1 = tempDir.appendingPathComponent("test.1.log")
+        let backupLog2 = tempDir.appendingPathComponent("test.2.log")
+        let backupLog3 = tempDir.appendingPathComponent("test.3.log")
+        let backupLog4 = tempDir.appendingPathComponent("test.4.log")
         XCTAssertTrue(FileManager.default.fileExists(atPath: backupLog1.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupLog2.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupLog3.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backupLog4.path))
     }
 
     // MARK: - 5. Capture Sink Tests
@@ -224,3 +230,4 @@ final class TTLogKitTests: XCTestCase {
         )
     }
 }
+

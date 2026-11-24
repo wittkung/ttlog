@@ -37,34 +37,52 @@ public final class TTLogEngine: @unchecked Sendable {
         }
     }
 
+    private static let environmentLevels: [String: TTLogLevel] = [
+        "debug": .debug,
+        "info": .info,
+        "warning": .warning,
+        "warn": .warning,
+        "error": .error,
+        "quiet": .quiet,
+        "off": .quiet,
+    ]
+
+    private static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil
+    }
+
+    private static func resolveInitialLevel(
+        from environment: [String: String],
+        isRunningTests: Bool
+    ) -> TTLogLevel {
+        if let configured = environment["TTLOG_LEVEL"] ?? environment["TTZIP_LOG_LEVEL"] {
+            return environmentLevels[configured.lowercased()] ?? .info
+        }
+        return isRunningTests ? .quiet : .info
+    }
+
+    private static func resolveDefaultSinks(
+        from environment: [String: String],
+        isRunningTests: Bool
+    ) -> [TTLogSink] {
+        var sinks: [TTLogSink] = [
+            TTLogOSLogSink(),
+            TTLogFileSink.shared,
+        ]
+        let debugConsole = environment["TTLOG_DEBUG_CONSOLE"] == "1"
+            || environment["TTZIP_DEBUG_CONSOLE"] == "1"
+        let interactiveConsole = !isRunningTests && isatty(STDOUT_FILENO) != 0
+        if debugConsole || interactiveConsole {
+            sinks.append(TTLogConsoleSink())
+        }
+        return sinks
+    }
+
     public init() {
         let env = ProcessInfo.processInfo.environment
-        let initialLevel: TTLogLevel
-
-        if let envLevelStr = (env["TTLOG_LEVEL"] ?? env["TTZIP_LOG_LEVEL"])?.lowercased() {
-            switch envLevelStr {
-            case "debug": initialLevel = .debug
-            case "info": initialLevel = .info
-            case "warning", "warn": initialLevel = .warning
-            case "error": initialLevel = .error
-            case "quiet", "off": initialLevel = .quiet
-            default: initialLevel = .info
-            }
-        } else if env["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil {
-            initialLevel = .quiet
-        } else {
-            initialLevel = .info
-        }
-
-        var defaultSinks: [TTLogSink] = [
-            TTLogOSLogSink(),
-            TTLogFileSink.shared
-        ]
-
-        let debugConsole = env["TTLOG_DEBUG_CONSOLE"] == "1" || env["TTZIP_DEBUG_CONSOLE"] == "1"
-        if debugConsole || (isatty(STDOUT_FILENO) != 0 && env["XCTestConfigurationFilePath"] == nil && NSClassFromString("XCTestCase") == nil) {
-            defaultSinks.append(TTLogConsoleSink())
-        }
+        let runningTests = Self.isRunningUnderXCTest(environment: env)
+        let initialLevel = Self.resolveInitialLevel(from: env, isRunningTests: runningTests)
+        let defaultSinks = Self.resolveDefaultSinks(from: env, isRunningTests: runningTests)
 
         self.state = OSAllocatedUnfairLock(
             initialState: State(
